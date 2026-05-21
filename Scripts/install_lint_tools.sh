@@ -12,6 +12,11 @@ SWIFTLINT_VERSION="0.63.2"
 SWIFTFORMAT_SHA256_DARWIN="8b6289b608a44e73cd3851c3589dbd7c553f32cc805aa54b3a496ce2b90febe7"
 SWIFTLINT_SHA256_DARWIN="c59a405c85f95b92ced677a500804e081596a4cae4a6a485af76065557d6ed29"
 
+SWIFTFORMAT_SHA256_LINUX_X86_64="150d9693570cf234ec91d8a03ba7165bd36a78335c5e40ed91e4c013a492eb54"
+SWIFTFORMAT_SHA256_LINUX_AARCH64="c55cea3543dd8488863d14132fa677db765c8f0ad5a6e6184cf822ca626bb1db"
+SWIFTLINT_SHA256_LINUX_X86_64="dd1017cfd20a1457f264590bcb5875a6ee06cd75b9a9d4f77cd43a552499143b"
+SWIFTLINT_SHA256_LINUX_AARCH64="104dedff762157f5cff7752f1cc2a289b60f3ea677e72d651c6f3a3287fdd948"
+
 log() { printf '%s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -39,6 +44,12 @@ install_zip_binary() {
   local url="$2"
   local expected_sha="$3"
   local binary_name="$4"
+  # Optional 5th argument: filename inside the archive. Defaults to binary_name when the
+  # archive ships the binary under the same name we install (e.g. macOS swiftformat.zip).
+  # The SwiftFormat Linux release zips ship arch-tagged binaries (swiftformat_linux,
+  # swiftformat_linux_aarch64), so the Linux callers below pass that name explicitly
+  # and we still install it as plain "swiftformat".
+  local archive_name="${5:-$binary_name}"
 
   local tmp_zip
   tmp_zip="$(mktemp -t "${label}.XXXX")"
@@ -59,16 +70,16 @@ install_zip_binary() {
   unzip -q "$tmp_zip" -d "$tmp_dir"
 
   local extracted_path=""
-  if [[ -f "${tmp_dir}/${binary_name}" ]]; then
-    extracted_path="${tmp_dir}/${binary_name}"
+  if [[ -f "${tmp_dir}/${archive_name}" ]]; then
+    extracted_path="${tmp_dir}/${archive_name}"
   else
-    extracted_path="$(find "$tmp_dir" -type f -name "$binary_name" | head -n 1 || true)"
+    extracted_path="$(find "$tmp_dir" -type f -name "$archive_name" | head -n 1 || true)"
   fi
 
   if [[ -z "$extracted_path" || ! -f "$extracted_path" ]]; then
     rm -f "$tmp_zip"
     rm -rf "$tmp_dir"
-    fail "${label} binary '${binary_name}' not found in archive"
+    fail "${label} binary '${archive_name}' not found in archive"
   fi
 
   install -m 0755 "$extracted_path" "${BIN_DIR}/${binary_name}"
@@ -104,21 +115,30 @@ case "$OS" in
       x86_64)
         SWIFTFORMAT_URL="https://github.com/nicklockwood/SwiftFormat/releases/download/${SWIFTFORMAT_VERSION}/swiftformat_linux.zip"
         SWIFTLINT_URL="https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/swiftlint_linux_amd64.zip"
+        SWIFTFORMAT_ARCHIVE_NAME="swiftformat_linux"
+        SWIFTFORMAT_SHA="$SWIFTFORMAT_SHA256_LINUX_X86_64"
+        SWIFTLINT_SHA="$SWIFTLINT_SHA256_LINUX_X86_64"
         ;;
       aarch64|arm64)
         SWIFTFORMAT_URL="https://github.com/nicklockwood/SwiftFormat/releases/download/${SWIFTFORMAT_VERSION}/swiftformat_linux_aarch64.zip"
         SWIFTLINT_URL="https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/swiftlint_linux_arm64.zip"
+        SWIFTFORMAT_ARCHIVE_NAME="swiftformat_linux_aarch64"
+        SWIFTFORMAT_SHA="$SWIFTFORMAT_SHA256_LINUX_AARCH64"
+        SWIFTLINT_SHA="$SWIFTLINT_SHA256_LINUX_AARCH64"
         ;;
       *)
         fail "Unsupported Linux arch: ${ARCH}"
         ;;
     esac
 
-    # SHA256 is intentionally only enforced for the macOS CI path.
-    # If we later run lint on Linux CI, add pinned SHAs here as well.
-    log "WARN: Linux SHA256 verification not configured for ${ARCH}; installing anyway."
-    install_zip_binary "SwiftFormat ${SWIFTFORMAT_VERSION}" "$SWIFTFORMAT_URL" "" "swiftformat"
-    install_zip_binary "SwiftLint ${SWIFTLINT_VERSION}" "$SWIFTLINT_URL" "" "swiftlint"
+    # SwiftFormat Linux zips ship the binary under an arch-tagged name; we still install
+    # it as plain "swiftformat" so the callers in lint.sh remain identical. SwiftLint's
+    # Linux zip already names the binary "swiftlint" (alongside swiftlint-static + LICENSE
+    # files), so no archive_name override is needed there.
+    install_zip_binary "SwiftFormat ${SWIFTFORMAT_VERSION}" "$SWIFTFORMAT_URL" \
+      "$SWIFTFORMAT_SHA" "swiftformat" "$SWIFTFORMAT_ARCHIVE_NAME"
+    install_zip_binary "SwiftLint ${SWIFTLINT_VERSION}" "$SWIFTLINT_URL" \
+      "$SWIFTLINT_SHA" "swiftlint"
     ;;
   *)
     fail "Unsupported OS: ${OS}"
